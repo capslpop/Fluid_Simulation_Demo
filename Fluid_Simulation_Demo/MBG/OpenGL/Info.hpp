@@ -119,6 +119,9 @@ struct RenderStates {
 	bool enable_scissor = false;
 	uvec2 scissor_start = uvec2(0);
 	uvec2 scissor_size = uvec2(0);
+
+	// Program Point Size
+	bool enable_point_size = false;
 };
 
 //------------------------------------------------------------

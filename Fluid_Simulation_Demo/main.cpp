@@ -1,4 +1,5 @@
 ﻿#include "main.h"
+#include "Camera/Camera.hpp"
 
 #include <vector>
 #include <iostream>
@@ -151,6 +152,121 @@ void test() {
 }
 
 int main() {
-	test();
+	//test();
+
+	// ----------------- Window -----------------------------
+	Window window(800, 600, "3D Points");
+
+
+	// ----------------- Camera -----------------------------
+	Camera camera(vec3(0.0, 0.0, 3.0), (float)800 / (float)600);
+
+	// ----------------- Uniform Buffer -----------------------------
+	mat4 projection_matrix = camera.getCameraProjMat();
+	mat4 view_matrix = camera.getCameraViewMat();
+
+	mat4 model_matrix = mat4(1.0f);
+
+	struct UniformData {
+		mat4 projection;
+		mat4 view;
+		mat4 model;
+	};
+
+	UniformData uniform_data{projection_matrix, view_matrix, model_matrix};
+
+	UniformBufferParams uniform_params;
+	uniform_params.data = &uniform_data;
+	uniform_params.size = sizeof(UniformData);
+	uniform_params.buffer_usage = BUFFER_USAGE::DYNAMIC_DRAW;
+
+	UniformBuffer uniform_buffer(uniform_params);
+
+
+	// ----------------- Vertex Buffer -----------------------------
+	struct Vertex {
+		vec3 position;
+	};
+
+	Attributes vertex_attributes[] = {
+		{ATTRIBUTE::FLOAT, 3},	// postion
+	};
+
+	// Generate grid of points
+	std::vector<Vertex> vertex_data;
+
+	for (int x = 0; x < 3; x++) {
+		for (int y = 0; y < 3; y++) {
+			for (int z = 0; z < 3; z++) {
+				vertex_data.push_back({
+					vec3(x - 1.0f, y - 1.0f, z - 1.0f)
+					});
+			}
+		}
+	}
+
+	VertexBuffer vertex_buffer({
+		.attributes = vertex_attributes,
+		.attributes_count = sizeof(vertex_attributes) / sizeof(Attributes),
+		.data = vertex_data.data(),
+		.count = (uint)vertex_data.size(),
+		});
+
+
+
+	// ----------------- Render Pass -----------------------------
+	RenderPass render_pass_main("Shaders/fluid_simulation.glsl");
+
+
+
+	// ----------------- Descriptor Set -----------------------------
+	Descriptor descriptors[] = {
+		{DESCRIPTOR_TYPE::VERTEX_BUFFER_IN, (void*)&vertex_buffer, nullptr},
+		{DESCRIPTOR_TYPE::UNIFORM_BUFFER, (void*)&uniform_buffer, nullptr},
+	};
+
+	DescriptorSetBuffer descriptor_set({
+		.descriptors = descriptors,
+		.count = sizeof(descriptors) / sizeof(Descriptor),
+		});
+
+
+
+	// ----------------- Construct Frame Graph -----------------------------
+	FrameGraph graph(window);
+
+	graph.addNode(NodeUniformCopy{
+		.uniform_buffer = &uniform_buffer,
+		.start = 0,
+		.size = sizeof(UniformData),
+		.data = &uniform_data,
+		});
+
+	graph.addNode({
+		.color = vec4(0.05, 0.06, 0.05, 1.0),
+		});
+
+	// Render the geometry
+	graph.addNode({
+		.render_pass = &render_pass_main,
+		.render_states = {
+			.render_type = RENDER_TYPE::POINTS,
+			.enable_point_size = true,
+		},
+		.descriptor_set = &descriptor_set,
+		});
+
+	graph.addNodeDisplay(); // Finally we display the frame
+
+	graph.build();
+
+	while (!window.isClosed()) {
+		model_matrix = rotate(model_matrix, radians(0.05f), vec3(1.0, 0.0, 0.0));
+		model_matrix = rotate(model_matrix, radians(0.05f), vec3(0.0, 1.0, 0.0));
+		uniform_data.model = model_matrix;
+
+		graph.run();
+	}
+
 	return 0;
 }

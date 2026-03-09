@@ -126,6 +126,14 @@ void FrameGraph::bindRenderStates(const RenderStates& s, uvec2 default_frame_siz
 			s.scissor_size.y
 		);
 	}
+
+	// Point Size
+	if (!s.enable_point_size) {
+		command_buffer_.disable(GL_PROGRAM_POINT_SIZE);
+	}
+	else {
+		command_buffer_.enable(GL_PROGRAM_POINT_SIZE);
+	}
 }
 
 void FrameGraph::addNode(const NodeVertexCopy& node) {

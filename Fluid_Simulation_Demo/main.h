@@ -4,6 +4,12 @@
 #pragma once
 
 // TODO: Reference additional headers your program requires here.
+#include <glm/glm.hpp>
+#include <glm/gtc/matrix_transform.hpp>
+using namespace glm;
+
+#include "MBG/OpenGL/MBG.hpp"
+using namespace MBG;
 
 struct Position {
 	float x, y, z;
