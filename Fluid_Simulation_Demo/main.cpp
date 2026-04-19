@@ -9,7 +9,7 @@
 #include <set>
 using namespace std;
 
-vector<Particle> particles;
+/*vector<Particle> particles;
 float cellSize = 2;
 float interactionDist = 3;
 float distSQ = interactionDist * interactionDist;
@@ -144,14 +144,141 @@ void test() {
 			for (auto z : difference) {
 				cout << z << " ";
 			}
-			cout << endl;*/
+			cout << endl;
 		}
 	}
 
 	cout << "Errors: " << count << endl;
+}*/
+
+
+// --------------------FLUID SIM---------------------------
+
+float quadratic_kernel(glm::vec3 pos1, glm::vec3 pos2) {
+	float dist = glm::distance(pos1, pos2);
+
+	if (dist >= 0.0f && dist < (1 / 2.0f)) {
+		return (3 / 4.0f) * (dist * dist);
+	}
+	else if (dist >= (1 / 2.0f) && dist < (3 / 2.0f)) {
+		return (1 / 2.0f) * (((3 / 2.0f) - dist)*((3 / 2.0f) - dist));
+	}
+	else {
+		return 0.0f;
+	}
+
+}
+
+// Grid resolution (cells)
+const int n = 64;
+
+const float dt = 1e-4f;
+const float frame_dt = 1e-3f;
+const float dx = 1.0f / n;
+
+std::vector<glm::vec3> particles;
+
+// Flip flop - pointer edition!
+std::vector<glm::vec4>* grid = new std::vector<glm::vec4>(n * n * n);
+std::vector<glm::vec4>* grid_previous = new std::vector<glm::vec4>(n * n * n);
+
+void advance(float dt) {
+	// Reset grid
+	//std::memset(grid, 0, sizeof(grid));
+	std::fill(grid->begin(), grid->end(), glm::vec4(0.0f));
+
+	// P2G
+	for (auto& p : particles) {
+		// G2P
+
+		glm::mat3 C = glm::mat3(0);
+		glm::vec3 particle_vel = glm::vec3(0.0f);
+		float density = 0.0f;
+
+		for (int i = -1; i <= 1; i++) {
+			for (int j = -1; j <= 1; j++) {
+				for (int k = -1; k <= 1; k++) {
+					glm::vec3 dpos = glm::vec3(i, j, k);
+					dpos += glm::floor(p);
+
+					int xi = (int)dpos.x;
+					int yi = (int)dpos.y;
+					int zi = (int)dpos.z;
+
+					if (xi < 0 || xi >= n ||
+						yi < 0 || yi >= n ||
+						zi < 0 || zi >= n) {
+						continue;
+					}
+
+					auto& grid_v = (*grid_previous)[xi + yi * n + zi * n * n];
+					if (grid_v.w > 1e-8f) {
+						continue;
+					}
+					auto weight = quadratic_kernel(dpos, p);
+					// Velocity
+					particle_vel += weight * (glm::vec3(grid_v.x, grid_v.y, grid_v.z) / grid_v.w);
+					// APIC C
+					C += 4.0f * glm::outerProduct(weight * glm::vec3(grid_v.x, grid_v.y, grid_v.z), dpos);
+					// Density
+					density += grid_v.w;
+				}
+			}
+		}
+
+		// Advection
+		p += dt * particle_vel;
+		p = glm::clamp(p, 2.0f, n - 3.0f);
+
+		//P2G Section
+
+		// Cauchy stress times dt
+		auto stress = -(density * glm::mat3(1));
+
+		// Fused APIC momentum + MLS-MPM stress contribution
+		// See http://taichi.graphics/wp-content/uploads/2019/03/mls-mpm-cpic.pdf
+		// Eqn 29
+		auto affine = stress + C;
+
+		// P2G
+		for (int i = -1; i <= 1; i++) {
+			for (int j = -1; j <= 1; j++) {
+				for (int k = -1; k <= 1; k++) {
+					auto dpos = (glm::vec3(i, j, k));
+					dpos += glm::floor(p);
+					// Translational momentum
+					glm::vec4 mass_x_velocity(particle_vel, 1.0f);
+
+					int xi = (int)dpos.x;
+					int yi = (int)dpos.y;
+					int zi = (int)dpos.z;
+
+					if (xi < 0 || xi >= n ||
+						yi < 0 || yi >= n ||
+						zi < 0 || zi >= n) {
+						continue;
+					}
+
+					(*grid)[xi + yi * n + zi * n * n] += (
+						quadratic_kernel(dpos, p) * (mass_x_velocity + glm::vec4(affine * dpos, 0))
+						);
+				}
+			}
+		}
+	}
 }
 
 int main() {
+	for (int x = 0; x < 3; x++) {
+		for (int y = 0; y < 3; y++) {
+			for (int z = 0; z < 3; z++) {
+				particles.push_back({
+					glm::vec3(x + 1.0f, y + 1.0f, z + 1.0f)
+					});
+			}
+		}
+	}
+
 	//test();
 
 	// ----------------- Window -----------------------------
@@ -159,7 +286,7 @@ int main() {
 
 
 	// ----------------- Camera -----------------------------
-	Camera camera(vec3(0.0, 0.0, 3.0), (float)800 / (float)600);
+	Camera camera(vec3(2.0, 2.0, 5.0), (float)800 / (float)600);
 
 	// ----------------- Uniform Buffer -----------------------------
 	mat4 projection_matrix = camera.getCameraProjMat();
@@ -208,8 +335,8 @@ int main() {
 	VertexBuffer vertex_buffer({
 		.attributes = vertex_attributes,
 		.attributes_count = sizeof(vertex_attributes) / sizeof(Attributes),
-		.data = vertex_data.data(),
-		.count = (uint)vertex_data.size(),
+		.data = particles.data(),
+		.count = (uint)particles.size(),
 		});
 
 
@@ -242,6 +369,12 @@ int main() {
 		.data = &uniform_data,
 		});
 
+	graph.addNode(NodeVertexCopy{
+		.vertex_buffer = &vertex_buffer,
+		.size = (uint)particles.size(),
+		.data = particles.data()
+		});
+
 	graph.addNode({
 		.color = vec4(0.05, 0.06, 0.05, 1.0),
 		});
@@ -261,9 +394,10 @@ int main() {
 	graph.build();
 
 	while (!window.isClosed()) {
-		model_matrix = rotate(model_matrix, radians(0.05f), vec3(1.0, 0.0, 0.0));
-		model_matrix = rotate(model_matrix, radians(0.05f), vec3(0.0, 1.0, 0.0));
 		uniform_data.model = model_matrix;
+
+		std::swap(grid, grid_previous);
+		advance(dt);
 
 		graph.run();
 	}
